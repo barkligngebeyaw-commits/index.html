@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="am">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D የተኩስ ጌም (3D FPS Game - Enhanced)</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+        }
+        #game-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+        }
+        .stats-box {
+            display: flex;
+            gap: 20px;
+            font-size: 22px;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+        }
+        .stat-item {
+            background: rgba(15, 23, 42, 0.75);
+            padding: 10px 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+        #health-val { color: #ef4444; }
+        #score-val { color: #3b82f6; }
+        #kills-val { color: #10b981; }
+
+        /* Crosshair */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 14px;
+            height: 14px;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(255, 255, 255, 0.9);
+        }
+        #crosshair::before {
+            top: 6px;
+            left: 0;
+            width: 14px;
+            height: 2px;
+        }
+        #crosshair::after {
+            top: 0;
+            left: 6px;
+            width: 2px;
+            height: 14px;
+        }
+
+        /* Start / Game Over Screen */
+        #blocker {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            z-index: 10;
+        }
+        #instructions {
+            text-align: center;
+            cursor: pointer;
+            background: #1e293b;
+            padding: 40px;
+            border-radius: 20px;
+            border: 2px solid #3b82f6;
+            box-shadow: 0 0 30px rgba(59, 130, 246, 0.3);
+        }
+        #instructions h1 {
+            font-size: 36px;
+            color: #60a5fa;
+            margin-bottom: 15px;
+        }
+        #instructions p {
+            font-size: 18px;
+            color: #94a3b8;
+            margin: 8px 0;
+        }
+        .btn {
+            margin-top: 20px;
+            padding: 12px 30px;
+            background: #2563eb;
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            display: inline-block;
+        }
+        .btn:hover { background: #1d4ed8; }
+    </style>
+    <!-- Three.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- PointerLockControls -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+</head>
+<body>
+
+    <div id="game-container">
+        <!-- UI Overlay -->
+        <div id="ui-layer">
+            <div class="stats-box">
+                <div class="stat-item">ጤንነት: <span id="health-val">100</span>%</div>
+                <div class="stat-item">ግድያ: <span id="kills-val">0</span></div>
+                <div class="stat-item">ነጥብ: <span id="score-val">0</span></div>
+            </div>
+            <div id="crosshair"></div>
+        </div>
+
+        <!-- Start / Pause Screen -->
+        <div id="blocker">
+            <div id="instructions">
+                <h1 id="title-text">3D የተኩስ ጌም (3D FPS)</h1>
+                <p>ለመንቀሳቀስ: <b>W, A, S, D</b></p>
+                <p>ለመተኮስ: <b>Mouse Left Click</b></p>
+                <p>አቅጣጫ ለማየት: <b>Mouse Move</b></p>
+                <p>ለመዝለል: <b>Spacebar</b></p>
+                <div class="btn" id="start-btn">ጨዋታውን ጀምር</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let camera, scene, renderer, controls;
+        let targets = [];
+        let raycaster;
+
+        let moveForward = false;
+        let moveBackward = false;
+        let moveLeft = false;
+        let moveRight = false;
+        let canJump = false;
+
+        let prevTime = performance.now();
+        const velocity = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+
+        let health = 100;
+        let kills = 0;
+        let score = 0;
+        let isGameOver = false;
+
+        const blocker = document.getElementById('blocker');
+        const startBtn = document.getElementById('start-btn');
+        const healthEl = document.getElementById('health-val');
+        const killsEl = document.getElementById('kills-val');
+        const scoreEl = document.getElementById('score-val');
+
+        init();
+        animate();
+
+        function init() {
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 1000);
+            camera.position.y = 10;
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0f172a);
+            scene.fog = new THREE.Fog(0x0f172a, 0, 750);
+
+            // Light
+            const light = new THREE.HemisphereLight(0xeeeeff, 0x777788, 0.85);
+            light.position.set(0.5, 1, 0.75);
+            scene.add(light);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            dirLight.position.set(100, 300, 100);
+            scene.add(dirLight);
+
+            // Controls
+            controls = new THREE.PointerLockControls(camera, document.body);
+
+            startBtn.addEventListener('click', function () {
+                if (isGameOver) resetGame();
+                controls.lock();
+            });
+
+            controls.addEventListener('lock', function () {
+                blocker.style.display = 'none';
+            });
+
+            controls.addEventListener('unlock', function () {
+                if (!isGameOver) {
+                    document.getElementById('title-text').innerText = "ጨዋታው ቆሟል (Paused)";
+                    startBtn.innerText = "ቀጥል";
+                    blocker.style.display = 'flex';
+                }
+            });
+
+            scene.add(controls.getObject());
+
+            // Key Controls
+            const onKeyDown = function (event) {
+                switch (event.code) {
+                    case 'ArrowUp':
+                    case 'KeyW': moveForward = true; break;
+                    case 'ArrowLeft':
+                    case 'KeyA': moveLeft = true; break;
+                    case 'ArrowDown':
+                    case 'KeyS': moveBackward = true; break;
+                    case 'ArrowRight':
+                    case 'KeyD': moveRight = true; break;
+                    case 'Space':
+                        if (canJump === true) velocity.y += 250;
+                        canJump = false;
+                        break;
+                }
+            };
+
+            const onKeyUp = function (event) {
+                switch (event.code) {
+                    case 'ArrowUp':
+                    case 'KeyW': moveForward = false; break;
+                    case 'ArrowLeft':
+                    case 'KeyA': moveLeft = false; break;
+                    case 'ArrowDown':
+                    case 'KeyS': moveBackward = false; break;
+                    case 'ArrowRight':
+                    case 'KeyD': moveRight = false; break;
+                }
+            };
+
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+
+            // Shooting Event
+            document.addEventListener('mousedown', function (event) {
+                if (controls.isLocked && event.button === 0) {
+                    shoot();
+                }
+            });
+
+            raycaster = new THREE.Raycaster();
+
+            // Floor
+            const floorGeometry = new THREE.PlaneGeometry(2000, 2000, 100, 100);
+            floorGeometry.rotateX(- Math.PI / 2);
+            const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
+            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            scene.add(floor);
+
+            // Grid Helper
+            const grid = new THREE.GridHelper(2000, 80, 0x3b82f6, 0x334155);
+            grid.position.y = 0.1;
+            scene.add(grid);
+
+            // Spawn Initial Enemy Humanoids (ተቃዋሚዎች) - ብዛት ወደ 8 ተቀንሷል
+            for (let i = 0; i < 8; i++) {
+                spawnHumanEnemy();
+            }
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.getElementById('game-container').appendChild(renderer.domElement);
+
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        // የሰው ቅርጽ ያለው ጠላት መፍጠሪያ (Humanoid Enemy)
+        function spawnHumanEnemy() {
+            const humanGroup = new THREE.Group();
+
+            // ቁሳቁሶች (Materials)
+            const shirtMat = new THREE.MeshStandardMaterial({ color: 0xd97706 }); // ብርቱካናማ ሸሚዝ
+            const pantsMat = new THREE.MeshStandardMaterial({ color: 0x1e3a8a }); // ሰማያዊ ሱሪ
+            const skinMat = new THREE.MeshStandardMaterial({ color: 0xffdbac });  // የቆዳ ቀለም
+
+            // 1. አካል (Torso)
+            const torsoGeo = new THREE.BoxGeometry(6, 12, 4);
+            const torso = new THREE.Mesh(torsoGeo, shirtMat);
+            torso.position.y = 14;
+            humanGroup.add(torso);
+
+            // 2. ራስ (Head)
+            const headGeo = new THREE.BoxGeometry(4, 4, 4);
+            const head = new THREE.Mesh(headGeo, skinMat);
+            head.position.y = 22;
+            humanGroup.add(head);
+
+            // 3. እግሮች (Legs)
+            const legGeo = new THREE.BoxGeometry(2.5, 8, 2.5);
+            
+            const leftLeg = new THREE.Mesh(legGeo, pantsMat);
+            leftLeg.position.set(-1.8, 4, 0);
+            humanGroup.add(leftLeg);
+
+            const rightLeg = new THREE.Mesh(legGeo, pantsMat);
+            rightLeg.position.set(1.8, 4, 0);
+            humanGroup.add(rightLeg);
+
+            // 4. እጆች (Arms)
+            const armGeo = new THREE.BoxGeometry(2, 10, 2);
+
+            const leftArm = new THREE.Mesh(armGeo, shirtMat);
+            leftArm.position.set(-4.2, 14, 0);
+            humanGroup.add(leftArm);
+
+            const rightArm = new THREE.Mesh(armGeo, shirtMat);
+            rightArm.position.set(4.2, 14, 0);
+            humanGroup.add(rightArm);
+
+            // ቦታ ማስያዣ (መጠነኛ ርቀት ላይ እንዲፈጠሩ)
+            humanGroup.position.x = (Math.random() - 0.5) * 800;
+            humanGroup.position.z = (Math.random() - 0.5) * 800;
+
+            // በጣም ቅርብ ከሆኑ ማራቅ
+            if (Math.abs(humanGroup.position.x) < 100) humanGroup.position.x += 150;
+            if (Math.abs(humanGroup.position.z) < 100) humanGroup.position.z += 150;
+
+            scene.add(humanGroup);
+            targets.push(humanGroup);
+        }
+
+        function shoot() {
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+            
+            // የጠላቶችን የውስጥ ክፍሎች ሙሉ በሙሉ መፈተሽ
+            const allMeshes = [];
+            targets.forEach(group => {
+                group.traverse(child => {
+                    if (child.isMesh) {
+                        child.userData.parentGroup = group;
+                        allMeshes.push(child);
+                    }
+                });
+            });
+
+            const intersects = raycaster.intersectObjects(allMeshes);
+
+            if (intersects.length > 0) {
+                const hitMesh = intersects[0].object;
+                const hitGroup = hitMesh.userData.parentGroup;
+
+                if (hitGroup && targets.includes(hitGroup)) {
+                    // ከተመታ በኋላ የሚጠፋበት ሂደት
+                    scene.remove(hitGroup);
+                    targets = targets.filter(t => t !== hitGroup);
+                    kills++;
+                    score += 50;
+                    killsEl.innerText = kills;
+                    scoreEl.innerText = score;
+                    
+                    // አዲስ ተቃዋሚ በምትኩ እንዲመጣ ማድረግ
+                    spawnHumanEnemy();
+                }
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function resetGame() {
+            health = 100;
+            kills = 0;
+            score = 0;
+            isGameOver = false;
+            healthEl.innerText = health;
+            killsEl.innerText = kills;
+            scoreEl.innerText = score;
+            camera.position.set(0, 10, 0);
+
+            // የቆዩትን ጠላቶች በሙሉ ማጽዳት
+            targets.forEach(t => scene.remove(t));
+            targets = [];
+
+            for (let i = 0; i < 8; i++) {
+                spawnHumanEnemy();
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = performance.now();
+
+            if (controls.isLocked) {
+                const delta = (time - prevTime) / 1000;
+
+                velocity.x -= velocity.x * 10.0 * delta;
+                velocity.z -= velocity.z * 10.0 * delta;
+                velocity.y -= 9.8 * 100.0 * delta;
+
+                direction.z = Number(moveForward) - Number(moveBackward);
+                direction.x = Number(moveRight) - Number(moveLeft);
+                direction.normalize();
+
+                if (moveForward || moveBackward) velocity.z -= direction.z * 400.0 * delta;
+                if (moveLeft || moveRight) velocity.x -= direction.x * 400.0 * delta;
+
+                controls.moveRight(- velocity.x * delta);
+                controls.moveForward(- velocity.z * delta);
+
+                controls.getObject().position.y += (velocity.y * delta);
+
+                if (controls.getObject().position.y < 10) {
+                    velocity.y = 0;
+                    controls.getObject().position.y = 10;
+                    canJump = true;
+                }
+
+                // የጠላቶች እንቅስቃሴ እና የጉዳት መጠን (ቀነስ ተደርጓል)
+                targets.forEach(target => {
+                    const pPos = controls.getObject().position;
+                    target.lookAt(pPos.x, target.position.y, pPos.z);
+                    
+                    // የጠላቶች ፍጥነት (ቀስ ብለው እንዲመጡ ተደርጓል: 0.45)
+                    target.translateZ(0.45);
+
+                    // ከተጫዋቹ ጋር ሲነካኩ የሚደርስ ጉዳት
+                    const dist = target.position.distanceTo(pPos);
+                    if (dist < 15) {
+                        // ጉዳቱ በጣም ቀና ብሏል (0.1 በመሆኑ ጤንነትህ በቶሎ አይልቅም)
+                        health -= 0.1;
+                        healthEl.innerText = Math.max(0, Math.floor(health));
+                        if (health <= 0 && !isGameOver) {
+                            isGameOver = true;
+                            controls.unlock();
+                            document.getElementById('title-text').innerText = "ተሸንፈዋል! (Game Over)";
+                            startBtn.innerText = "እንደገና ጀምር";
+                            blocker.style.display = 'flex';
+                        }
+                    }
+                });
+            }
+
+            prevTime = time;
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
